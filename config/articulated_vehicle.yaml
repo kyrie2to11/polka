@@ -1,0 +1,200 @@
+# ============================================================================
+# polka - articulated vehicle 6-LiDAR fusion config
+# ============================================================================
+#
+# 6x RoboSense Airy 3D LiDARs on an articulated chassis:
+#   front_top/rear_top  - tilted 30 deg for surround-overhead coverage
+#   front_left/right    - side-mounted for lateral blind-spot fill
+#   rear_left/right     - side-mounted for lateral blind-spot fill
+#
+# Topics match ros_gz_bridge mappings in robot_description.
+# Externsics come from URDF TF tree (dynamic via articulation joint).
+# ============================================================================
+
+polka:
+  ros__parameters:
+    # --------------------------------------------------
+    # General
+    # --------------------------------------------------
+
+    output_frame_id: "base_footprint"
+    output_rate: 20.0
+    source_timeout: 0.5
+    enable_gpu: true
+    timestamp_strategy: "latest"
+    max_source_spread_warn: 0.05
+
+    # --------------------------------------------------
+    # Motion Compensation (IMU-based deskewing)
+    # --------------------------------------------------
+    # Uses the front_top IMU as the reference for motion estimation.
+    # Per-point deskewing corrects intra-scan distortion; inter-source
+    # alignment corrects timing offsets between the six sensors.
+
+    motion_compensation:
+      enabled: false
+      imu_topic: "/imu/rear_top" # single IMU for all sources (same rigid body as base_footprint)
+      max_imu_age: 0.2
+      imu_buffer_size: 200
+      per_point_deskew: true
+      deskew_timestamp_field: "auto"
+
+    # --------------------------------------------------
+    # Outputs
+    # --------------------------------------------------
+
+    outputs:
+      # === Merged PointCloud2 ===
+      cloud:
+        enabled: true
+        topic: "~/merged_cloud"
+
+        qos:
+          reliability: "reliable"
+          durability: "volatile"
+          history_depth: 5
+
+        filters:
+          range:
+            enabled: true
+            min: 0.3
+            max: 30.0
+
+          angular:
+            enabled: false
+
+          box:
+            enabled: false
+
+        height_cap:
+          enabled: true
+          z_min: -0.5
+          z_max: 15.0
+
+        self_filter:
+          enabled: false
+
+        voxel:
+          enabled: true
+          leaf_size: 0.2
+
+      # === Merged LaserScan (for nav2 costmap) ===
+      scan:
+        enabled: true
+        topic: "~/merged_scan"
+
+        qos:
+          reliability: "best_effort"
+          durability: "volatile"
+          history_depth: 5
+
+        z_min: -0.3
+        z_max: 0.8
+        angle_min: -3.14159265
+        angle_max: 3.14159265
+        angle_increment: 0.00436332 # 0.25 deg ~ 1440 bins
+        range_min: 0.15
+        range_max: 30.0
+
+    # --------------------------------------------------
+    # Sources
+    # --------------------------------------------------
+
+    source_names:
+      - front_top
+      - rear_top
+      - front_left
+      - front_right
+      - rear_left
+      - rear_right
+
+    sources:
+      front_top:
+        topic: "/scan/front_top"
+        type: "pointcloud2"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.3
+            max: 30.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
+
+      rear_top:
+        topic: "/scan/rear_top"
+        type: "pointcloud2"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.3
+            max: 30.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
+
+      front_left:
+        topic: "/scan/front_left"
+        type: "pointcloud2"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.3
+            max: 15.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
+
+      front_right:
+        topic: "/scan/front_right"
+        type: "pointcloud2"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.3
+            max: 15.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
+
+      rear_left:
+        topic: "/scan/rear_left"
+        type: "pointcloud2"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.3
+            max: 15.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
+
+      rear_right:
+        topic: "/scan/rear_right"
+        type: "pointcloud2"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.3
+            max: 15.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
