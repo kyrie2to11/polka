@@ -1,14 +1,16 @@
 # ============================================================================
-# polka - articulated vehicle 6-LiDAR fusion config
+# polka - articulated vehicle LiDAR fusion config
 # ============================================================================
 #
-# 6x RoboSense Airy 3D LiDARs on an articulated chassis:
-#   front_top/rear_top  - tilted 30 deg for surround-overhead coverage
-#   front_left/right    - side-mounted for lateral blind-spot fill
-#   rear_left/right     - side-mounted for lateral blind-spot fill
+# Real rig: RoboSense Airy LiDARs published by irail_rslidar (rslidar_sdk).
+# Currently 2 sensors for testing, more will be added incrementally:
+#   airy_front - roof front, tilted forward (front_lidar_link)
+#   airy_rear  - roof rear, tilted backward (rear_lidar_link)
 #
-# Topics match ros_gz_bridge mappings in robot_description.
-# Externsics come from URDF TF tree (dynamic via articulation joint).
+# Topics match irail_rslidar/config/rslidar_2lidar.yaml (/pointcloud/airy_*).
+# Externsics come from URDF TF tree (dynamic via articulation joint):
+# each source's header.frame_id (front_lidar_link / rear_lidar_link) is
+# resolved against output_frame_id (base_footprint) via TF.
 # ============================================================================
 
 polka:
@@ -27,13 +29,15 @@ polka:
     # --------------------------------------------------
     # Motion Compensation (IMU-based deskewing)
     # --------------------------------------------------
-    # Uses the front_top IMU as the reference for motion estimation.
+    # Uses one of the Airy IMUs as the reference for motion estimation.
     # Per-point deskewing corrects intra-scan distortion; inter-source
-    # alignment corrects timing offsets between the six sensors.
+    # alignment corrects timing offsets between sensors.
+    # NOTE: disabled for now; imu_topic points at a real source for when
+    # it is enabled.
 
     motion_compensation:
       enabled: false
-      imu_topic: "/imu/rear_top" # single IMU for all sources (same rigid body as base_footprint)
+      imu_topic: "/imu/airy_rear" # single IMU for all sources (same rigid body as base_footprint)
       max_imu_age: 0.2
       imu_buffer_size: 200
       per_point_deskew: true
@@ -101,16 +105,12 @@ polka:
     # --------------------------------------------------
 
     source_names:
-      - front_top
-      - rear_top
-      - front_left
-      - front_right
-      - rear_left
-      - rear_right
+      - airy_front
+      - airy_rear
 
     sources:
-      front_top:
-        topic: "/scan/front_top"
+      airy_front:
+        topic: "/pointcloud/airy_front"
         type: "pointcloud2"
         qos_reliability: "best_effort"
         qos_history_depth: 1
@@ -124,8 +124,8 @@ polka:
           box:
             enabled: false
 
-      rear_top:
-        topic: "/scan/rear_top"
+      airy_rear:
+        topic: "/pointcloud/airy_rear"
         type: "pointcloud2"
         qos_reliability: "best_effort"
         qos_history_depth: 1
@@ -134,66 +134,6 @@ polka:
             enabled: true
             min: 0.3
             max: 30.0
-          angular:
-            enabled: false
-          box:
-            enabled: false
-
-      front_left:
-        topic: "/scan/front_left"
-        type: "pointcloud2"
-        qos_reliability: "best_effort"
-        qos_history_depth: 1
-        filters:
-          range:
-            enabled: true
-            min: 0.3
-            max: 15.0
-          angular:
-            enabled: false
-          box:
-            enabled: false
-
-      front_right:
-        topic: "/scan/front_right"
-        type: "pointcloud2"
-        qos_reliability: "best_effort"
-        qos_history_depth: 1
-        filters:
-          range:
-            enabled: true
-            min: 0.3
-            max: 15.0
-          angular:
-            enabled: false
-          box:
-            enabled: false
-
-      rear_left:
-        topic: "/scan/rear_left"
-        type: "pointcloud2"
-        qos_reliability: "best_effort"
-        qos_history_depth: 1
-        filters:
-          range:
-            enabled: true
-            min: 0.3
-            max: 15.0
-          angular:
-            enabled: false
-          box:
-            enabled: false
-
-      rear_right:
-        topic: "/scan/rear_right"
-        type: "pointcloud2"
-        qos_reliability: "best_effort"
-        qos_history_depth: 1
-        filters:
-          range:
-            enabled: true
-            min: 0.3
-            max: 15.0
           angular:
             enabled: false
           box:
