@@ -29,15 +29,13 @@ polka:
     # --------------------------------------------------
     # Motion Compensation (IMU-based deskewing)
     # --------------------------------------------------
-    # Uses one of the Airy IMUs as the reference for motion estimation.
+    # Uses each Airy's built-in IMU as the reference for motion estimation.
     # Per-point deskewing corrects intra-scan distortion; inter-source
     # alignment corrects timing offsets between sensors.
-    # NOTE: disabled for now; imu_topic points at a real source for when
-    # it is enabled.
 
     motion_compensation:
-      enabled: false
-      imu_topic: "/imu/airy_rear" # single IMU for all sources (same rigid body as base_footprint)
+      enabled: true
+      imu_topic: "/imu/airy_rear"
       max_imu_age: 0.2
       imu_buffer_size: 200
       per_point_deskew: true
@@ -61,8 +59,8 @@ polka:
         filters:
           range:
             enabled: true
-            min: 0.3
-            max: 30.0
+            min: 0.2
+            max: 200.0
 
           angular:
             enabled: false
@@ -80,7 +78,7 @@ polka:
 
         voxel:
           enabled: true
-          leaf_size: 0.2
+          leaf_size: 0.05
 
       # === Merged LaserScan (for nav2 costmap) ===
       scan:
@@ -97,8 +95,8 @@ polka:
         angle_min: -3.14159265
         angle_max: 3.14159265
         angle_increment: 0.00436332 # 0.25 deg ~ 1440 bins
-        range_min: 0.15
-        range_max: 30.0
+        range_min: 0.2
+        range_max: 200.0
 
     # --------------------------------------------------
     # Sources
@@ -112,13 +110,14 @@ polka:
       airy_front:
         topic: "/pointcloud/airy_front"
         type: "pointcloud2"
+        imu_topic: "/imu/airy_front"
         qos_reliability: "best_effort"
         qos_history_depth: 1
         filters:
           range:
             enabled: true
-            min: 0.3
-            max: 30.0
+            min: 0.2
+            max: 200.0
           angular:
             enabled: false
           box:
@@ -127,13 +126,14 @@ polka:
       airy_rear:
         topic: "/pointcloud/airy_rear"
         type: "pointcloud2"
+        imu_topic: "/imu/airy_rear"
         qos_reliability: "best_effort"
         qos_history_depth: 1
         filters:
           range:
             enabled: true
-            min: 0.3
-            max: 30.0
+            min: 0.2
+            max: 200.0
           angular:
             enabled: false
           box:
