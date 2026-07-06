@@ -3,13 +3,14 @@
 # ============================================================================
 #
 # Real rig: RoboSense Airy LiDARs published by irail_rslidar (rslidar_sdk).
-# Currently 2 sensors for testing, more will be added incrementally:
+# Current real experiment uses 3 sensors:
 #   airy_front - roof front, tilted forward (front_lidar_link)
 #   airy_rear  - roof rear, tilted backward (rear_lidar_link)
+#   airy_left_front - left-front, uncalibrated seed (left_front_lidar_link)
 #
 # Topics match irail_rslidar/config/rslidar_2lidar.yaml (/pointcloud/airy_*).
 # Externsics come from URDF TF tree (dynamic via articulation joint):
-# each source's header.frame_id (front_lidar_link / rear_lidar_link) is
+# each source's header.frame_id is
 # resolved against output_frame_id (base_footprint) via TF.
 # ============================================================================
 
@@ -105,6 +106,7 @@ polka:
     source_names:
       - airy_front
       - airy_rear
+      - airy_left_front
 
     sources:
       airy_front:
@@ -127,6 +129,22 @@ polka:
         topic: "/pointcloud/airy_rear"
         type: "pointcloud2"
         imu_topic: "/imu/airy_rear"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.2
+            max: 200.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
+
+      airy_left_front:
+        topic: "/pointcloud/airy_left_front"
+        type: "pointcloud2"
+        imu_topic: "/imu/airy_left_front"
         qos_reliability: "best_effort"
         qos_history_depth: 1
         filters:
