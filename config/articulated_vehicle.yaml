@@ -8,7 +8,7 @@
 #   airy_rear  - roof rear, tilted backward (rear_lidar_link)
 #   airy_left_front - left-front, uncalibrated seed (left_front_lidar_link)
 #
-# Topics match irail_rslidar/config/rslidar_2lidar.yaml (/pointcloud/airy_*).
+# Topics match irail_rslidar/config/rslidar_multi.yaml (/pointcloud/airy_*).
 # Externsics come from URDF TF tree (dynamic via articulation joint):
 # each source's header.frame_id is
 # resolved against output_frame_id (base_footprint) via TF.
