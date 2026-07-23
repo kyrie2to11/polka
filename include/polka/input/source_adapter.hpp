@@ -55,6 +55,12 @@ public:
   const FilterParams & filter_params() const { return config_.filter_params; }
   void rebuild_filters(const FilterParams & fp);
 
+  /// 返回 per-source IMU 快照（若配置了 imu_topic），否则返回 nullptr
+  std::shared_ptr<const AveragedImu> imu_snapshot() const {
+    if (get_imu_) return get_imu_();
+    return nullptr;
+  }
+
 private:
   void pc2_callback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
   void scan_callback(sensor_msgs::msg::LaserScan::ConstSharedPtr msg);

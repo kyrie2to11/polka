@@ -175,6 +175,7 @@ void PolkaNode::output_callback()
     Eigen::Isometry3d transform;
     FilterParams filter_params;
     rclcpp::Time stamp;
+    std::shared_ptr<const AveragedImu> imu;  // per-source IMU 快照（跨源对齐用）
   };
   std::vector<SourceData> source_data;
 
@@ -202,7 +203,8 @@ void PolkaNode::output_callback()
       transform = last_good_transforms_[i];
     }
 
-    source_data.push_back({cloud, transform, src->filter_params(), src->last_stamp()});
+    source_data.push_back({cloud, transform, src->filter_params(), src->last_stamp(),
+                           config_.motion_compensation.enabled ? src->imu_snapshot() : nullptr});
   }
 
   if (source_data.empty()) {
@@ -253,13 +255,14 @@ void PolkaNode::output_callback()
     if (last_cloud_ && output_stamp == last_cloud_stamp_) return;
   }
 
-  bool do_compensate = false;
-  AveragedImu imu_for_alignment;
+  // 全局 IMU 作为 fallback（当 source 没有配 per-source IMU 时）
+  AveragedImu global_imu_fallback;
+  bool has_global_fallback = false;
   if (config_.motion_compensation.enabled && global_imu_) {
     auto imu = global_imu_->snapshot();
     if (imu && imu->valid) {
-      imu_for_alignment = *imu;
-      do_compensate = true;
+      global_imu_fallback = *imu;
+      has_global_fallback = true;
     }
   }
 
@@ -267,11 +270,20 @@ void PolkaNode::output_callback()
   inputs.reserve(source_data.size());
   for (auto & sd : source_data) {
     Eigen::Isometry3d final_transform = sd.transform;
-    if (do_compensate) {
+
+    // 优先用 per-source IMU，fallback 到全局 IMU
+    const AveragedImu * imu_ptr = nullptr;
+    if (sd.imu && sd.imu->valid) {
+      imu_ptr = sd.imu.get();
+    } else if (has_global_fallback) {
+      imu_ptr = &global_imu_fallback;
+    }
+
+    if (imu_ptr) {
       double dt = (sd.stamp - output_stamp).seconds();
       if (std::abs(dt) > 1e-6) {
         Eigen::Isometry3d delta = compute_motion_delta(
-          imu_for_alignment.angular_vel, imu_for_alignment.linear_accel, dt);
+          imu_ptr->angular_vel, imu_ptr->linear_accel, dt);
         final_transform = delta * sd.transform;
       }
     }
