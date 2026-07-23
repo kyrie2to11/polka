@@ -45,6 +45,25 @@ rclcpp::Time ImuBuffer::last_stamp() const
   return last_stamp_;
 }
 
+std::vector<ImuSample> ImuBuffer::get_samples_in_range(
+    const rclcpp::Time & t_start, const rclcpp::Time & t_end) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (buffer_.empty()) return {};
+
+  double ts = t_start.seconds();
+  double te = t_end.seconds();
+  if (ts > te) std::swap(ts, te);
+
+  std::vector<ImuSample> result;
+  for (const auto & s : buffer_) {
+    double t = s.stamp.seconds();
+    if (t >= ts && t <= te)
+      result.push_back(s);
+  }
+  return result;
+}
+
 void ImuBuffer::callback(sensor_msgs::msg::Imu::ConstSharedPtr msg)
 {
   const auto & a = msg->linear_acceleration;

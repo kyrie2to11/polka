@@ -80,6 +80,7 @@ void ConfigLoader::declare_defaults()
   node_->declare_parameter<bool>("motion_compensation.per_point_deskew", true);
   node_->declare_parameter<std::string>("motion_compensation.deskew_timestamp_field", "auto");
   node_->declare_parameter<std::string>("motion_compensation.imu_frame", "");
+  node_->declare_parameter<std::string>("motion_compensation.deskew_mode", "constant");
 
   // diagnostics + drift detection
   node_->declare_parameter<bool>("diagnostics.enabled", true);
@@ -282,7 +283,10 @@ MergeConfig ConfigLoader::read_common_params()
   cfg.motion_compensation.deskew_timestamp_field =
     param("motion_compensation.deskew_timestamp_field").as_string();
   cfg.motion_compensation.imu_frame =
+  cfg.motion_compensation.imu_frame =
     param("motion_compensation.imu_frame").as_string();
+  cfg.motion_compensation.deskew_mode =
+    param("motion_compensation.deskew_mode").as_string();
 
   cfg.diagnostics.enabled = param("diagnostics.enabled").as_bool();
   cfg.diagnostics.publish_period_sec = param("diagnostics.publish_period_sec").as_double();

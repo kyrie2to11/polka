@@ -22,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -56,6 +57,9 @@ public:
   const std::string & topic() const {return topic_;}
   uint64_t msg_count() const {return msg_count_.load(std::memory_order_relaxed);}
   rclcpp::Time last_stamp() const;
+  /// 获取 [t_start, t_end] 时间范围内的 IMU 样本（含端点插值）
+  std::vector<ImuSample> get_samples_in_range(
+      const rclcpp::Time & t_start, const rclcpp::Time & t_end) const;
 
 private:
   void callback(sensor_msgs::msg::Imu::ConstSharedPtr msg);

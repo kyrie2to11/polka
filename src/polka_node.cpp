@@ -167,7 +167,7 @@ std::unique_ptr<SourceAdapter> PolkaNode::make_adapter(
   return std::make_unique<SourceAdapter>(
     this, sc, merge_engine_->is_gpu(), make_imu_getter(cfg),
     mc.enabled && mc.per_point_deskew,
-    mc.deskew_timestamp_field, tf_buffer_, mc.imu_buffer_size);
+    mc.deskew_timestamp_field, tf_buffer_, mc.imu_buffer_size, mc.deskew_mode);
 }
 
 DriftTracker::Config PolkaNode::drift_config(
@@ -700,6 +700,7 @@ void PolkaNode::output_callback()
     FilterParams filter_params;
     rclcpp::Time stamp;
     std::shared_ptr<const AveragedImu> imu;  // per-source IMU 快照（跨源对齐用）
+    std::shared_ptr<ImuBuffer> imu_buf;      // per-source IMU buffer（积分去畸变用）
   };
   std::vector<SourceData> source_data;
 
@@ -741,7 +742,8 @@ void PolkaNode::output_callback()
     }
 
     source_data.push_back({cloud, transform, src.filter_params(), src.last_stamp(),
-                           config_.motion_compensation.enabled ? src.imu_snapshot() : nullptr});
+                           config_.motion_compensation.enabled ? src.imu_snapshot() : nullptr,
+                           src.imu_buffer()});
   }
 
   if (source_data.empty()) {
@@ -812,6 +814,7 @@ void PolkaNode::output_callback()
       has_global_fallback = true;
     }
   }
+  bool use_integration = (config_.motion_compensation.deskew_mode == "integration");
 
   std::vector<MergeInput> inputs;
   inputs.reserve(source_data.size());
@@ -819,21 +822,54 @@ void PolkaNode::output_callback()
   for (auto & sd : source_data) {
     Eigen::Isometry3d final_transform = sd.transform;
 
-    // 优先用 per-source IMU，fallback 到全局 IMU
-    const AveragedImu * imu_ptr = nullptr;
-    if (sd.imu && sd.imu->valid) {
-      imu_ptr = sd.imu.get();
-    } else if (has_global_fallback) {
-      imu_ptr = &global_imu_fallback;
-    }
+    double dt = (sd.stamp - output_stamp).seconds();
+    if (std::abs(dt) > 1e-6) {
+      Eigen::Isometry3d delta = Eigen::Isometry3d::Identity();
 
-    if (imu_ptr) {
-      double dt = (sd.stamp - output_stamp).seconds();
-      if (std::abs(dt) > 1e-6) {
-        Eigen::Isometry3d delta = compute_motion_delta(
-          imu_ptr->angular_vel, imu_ptr->linear_accel, dt);
-        final_transform = delta * sd.transform;
+      if (use_integration) {
+        // 积分模式：用 per-source IMU buffer 做旋转积分
+        auto imu_buf = sd.imu_buf;
+        if (imu_buf) {
+          auto samples = imu_buf->get_samples_in_range(sd.stamp, output_stamp);
+          if (samples.size() >= 2) {
+            Eigen::Matrix3d R = Eigen::Matrix3d::Identity();
+            double t_prev = sd.stamp.seconds();
+            for (const auto & s : samples) {
+              double dts = s.stamp.seconds() - t_prev;
+              if (dts > 0) {
+                R = R * so3_exp(Eigen::Vector3d(s.wx, s.wy, s.wz) * dts);
+                t_prev = s.stamp.seconds();
+              }
+            }
+            // 补到 output_stamp
+            double dt_remain = output_stamp.seconds() - t_prev;
+            if (dt_remain > 0) {
+              const auto & last = samples.back();
+              R = R * so3_exp(Eigen::Vector3d(last.wx, last.wy, last.wz) * dt_remain);
+            }
+            delta.linear() = R;
+          } else if (has_global_fallback) {
+            delta = compute_motion_delta(
+              global_imu_fallback.angular_vel, global_imu_fallback.linear_accel, dt);
+          }
+        } else if (has_global_fallback) {
+          delta = compute_motion_delta(
+            global_imu_fallback.angular_vel, global_imu_fallback.linear_accel, dt);
+        }
+      } else {
+        // 恒速模式
+        const AveragedImu * imu_ptr = nullptr;
+        if (sd.imu && sd.imu->valid) {
+          imu_ptr = sd.imu.get();
+        } else if (has_global_fallback) {
+          imu_ptr = &global_imu_fallback;
+        }
+        if (imu_ptr) {
+          delta = compute_motion_delta(imu_ptr->angular_vel, imu_ptr->linear_accel, dt);
+        }
       }
+
+      final_transform = delta * sd.transform;
     }
     points_in += static_cast<int64_t>(sd.cloud->size());
     inputs.push_back({sd.cloud, final_transform, sd.filter_params});

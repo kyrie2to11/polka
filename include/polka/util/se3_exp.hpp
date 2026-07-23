@@ -100,6 +100,15 @@ inline Eigen::Isometry3d compute_motion_delta(
   return se3_exp(rho, phi);
 }
 
+/// SO(3) exponential map: rotation vector → rotation matrix (Rodrigues).
+inline Eigen::Matrix3d so3_exp(const Eigen::Vector3d & phi)
+{
+  double theta = phi.norm();
+  if (theta < 1e-12)
+    return Eigen::Matrix3d::Identity();
+  return Eigen::AngleAxisd(theta, phi / theta).toRotationMatrix();
+}
+
 }  // namespace polka
 
 #endif  // POLKA__UTIL__SE3_EXP_HPP_

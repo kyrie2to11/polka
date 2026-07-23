@@ -41,6 +41,7 @@ polka:
       imu_buffer_size: 200
       per_point_deskew: true
       deskew_timestamp_field: "auto"
+      deskew_mode: "constant"  # "constant" or "integration"
 
     # --------------------------------------------------
     # Outputs
