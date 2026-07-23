@@ -68,6 +68,11 @@ public:
   // True only once deskewing is both configured on and this source's actual
   // messages were found to carry a usable per-point timestamp field.
   bool deskew_active() const {return deskew_enabled_ && has_timestamp_field_;}
+  /// 返回 per-source IMU 快照（若配置了 imu_topic），否则返回 nullptr
+  std::shared_ptr<const AveragedImu> imu_snapshot() const {
+    if (get_imu_) return get_imu_();
+    return nullptr;
+  }
 
 private:
   void pc2_callback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
