@@ -20,7 +20,7 @@ polka:
     # General
     # --------------------------------------------------
 
-    output_frame_id: "base_footprint"
+    output_frame_id: "rear_lidar_link"
     output_rate: 20.0
     source_timeout: 0.5
     enable_gpu: true
@@ -70,7 +70,7 @@ polka:
             enabled: false
 
         height_cap:
-          enabled: true
+          enabled: false
           z_min: -0.5
           z_max: 15.0
 
