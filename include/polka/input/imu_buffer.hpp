@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace polka {
 
@@ -44,6 +45,10 @@ public:
   ImuBuffer(rclcpp::Node * node, const std::string & topic, int buffer_size);
 
   std::shared_ptr<const AveragedImu> snapshot() const;
+
+  /// 获取 [t_start, t_end] 时间范围内的 IMU 样本（含端点插值）
+  std::vector<ImuSample> get_samples_in_range(
+      const rclcpp::Time & t_start, const rclcpp::Time & t_end) const;
 
 private:
   void callback(sensor_msgs::msg::Imu::ConstSharedPtr msg);

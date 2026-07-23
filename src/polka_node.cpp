@@ -88,7 +88,8 @@ PolkaNode::PolkaNode(const rclcpp::NodeOptions & options)
     sources_.push_back(std::make_unique<SourceAdapter>(
       this, src_cfg, gpu_filters, imu_getter, deskew,
       config_.motion_compensation.deskew_timestamp_field,
-      tf_buffer_, config_.motion_compensation.imu_buffer_size));
+      tf_buffer_, config_.motion_compensation.imu_buffer_size,
+      config_.motion_compensation.deskew_mode));
 
   last_good_transforms_.resize(sources_.size(), Eigen::Isometry3d::Identity());
 
@@ -265,27 +266,62 @@ void PolkaNode::output_callback()
       has_global_fallback = true;
     }
   }
+  bool use_integration = (config_.motion_compensation.deskew_mode == "integration");
 
   std::vector<MergeInput> inputs;
   inputs.reserve(source_data.size());
-  for (auto & sd : source_data) {
+  for (size_t si = 0; si < source_data.size(); ++si) {
+    auto & sd = source_data[si];
     Eigen::Isometry3d final_transform = sd.transform;
 
-    // 优先用 per-source IMU，fallback 到全局 IMU
-    const AveragedImu * imu_ptr = nullptr;
-    if (sd.imu && sd.imu->valid) {
-      imu_ptr = sd.imu.get();
-    } else if (has_global_fallback) {
-      imu_ptr = &global_imu_fallback;
-    }
+    double dt = (sd.stamp - output_stamp).seconds();
+    if (std::abs(dt) > 1e-6) {
+      Eigen::Isometry3d delta = Eigen::Isometry3d::Identity();
 
-    if (imu_ptr) {
-      double dt = (sd.stamp - output_stamp).seconds();
-      if (std::abs(dt) > 1e-6) {
-        Eigen::Isometry3d delta = compute_motion_delta(
-          imu_ptr->angular_vel, imu_ptr->linear_accel, dt);
-        final_transform = delta * sd.transform;
+      if (use_integration) {
+        // 积分模式：用 per-source IMU buffer 做旋转积分
+        auto imu_buf = sources_[si]->imu_buffer();
+        if (imu_buf) {
+          auto samples = imu_buf->get_samples_in_range(sd.stamp, output_stamp);
+          if (samples.size() >= 2) {
+            Eigen::Matrix3d R = Eigen::Matrix3d::Identity();
+            double t_prev = sd.stamp.seconds();
+            for (const auto & s : samples) {
+              double dts = s.stamp.seconds() - t_prev;
+              if (dts > 0) {
+                R = R * so3_exp(Eigen::Vector3d(s.wx, s.wy, s.wz) * dts);
+                t_prev = s.stamp.seconds();
+              }
+            }
+            // 补到 output_stamp
+            double dt_remain = output_stamp.seconds() - t_prev;
+            if (dt_remain > 0) {
+              const auto & last = samples.back();
+              R = R * so3_exp(Eigen::Vector3d(last.wx, last.wy, last.wz) * dt_remain);
+            }
+            delta.linear() = R;
+          } else if (has_global_fallback) {
+            delta = compute_motion_delta(
+              global_imu_fallback.angular_vel, global_imu_fallback.linear_accel, dt);
+          }
+        } else if (has_global_fallback) {
+          delta = compute_motion_delta(
+            global_imu_fallback.angular_vel, global_imu_fallback.linear_accel, dt);
+        }
+      } else {
+        // 恒速模式
+        const AveragedImu * imu_ptr = nullptr;
+        if (sd.imu && sd.imu->valid) {
+          imu_ptr = sd.imu.get();
+        } else if (has_global_fallback) {
+          imu_ptr = &global_imu_fallback;
+        }
+        if (imu_ptr) {
+          delta = compute_motion_delta(imu_ptr->angular_vel, imu_ptr->linear_accel, dt);
+        }
       }
+
+      final_transform = delta * sd.transform;
     }
     inputs.push_back({sd.cloud, final_transform, sd.filter_params});
   }

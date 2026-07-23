@@ -16,6 +16,8 @@
 #include "polka/util/se3_exp.hpp"
 #include "polka/filters/filter_chain.hpp"
 
+#include <chrono>
+
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/msg/point_field.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
@@ -28,10 +30,12 @@ SourceAdapter::SourceAdapter(rclcpp::Node * node, const SourceConfig & config, b
                              ImuGetter imu_getter, bool deskew_enabled,
                              const std::string & timestamp_field_hint,
                              std::shared_ptr<tf2_ros::Buffer> tf_buffer,
-                             int imu_buffer_size)
+                             int imu_buffer_size,
+                             std::string deskew_mode)
 : node_(node), config_(config), logger_(node->get_logger()), gpu_filters_(gpu_filters),
   get_imu_(std::move(imu_getter)), deskew_enabled_(deskew_enabled),
-  timestamp_field_hint_(timestamp_field_hint), tf_buffer_(std::move(tf_buffer))
+  timestamp_field_hint_(timestamp_field_hint), tf_buffer_(std::move(tf_buffer)),
+  deskew_mode_(std::move(deskew_mode))
 {
   // Per-source IMU: if configured, create a local buffer and override the getter
   if (deskew_enabled_ && !config.imu_topic.empty()) {
@@ -223,6 +227,105 @@ void SourceAdapter::deskew_cloud(
   }
 }
 
+void SourceAdapter::deskew_cloud_integration(
+  CloudT & cloud, const sensor_msgs::msg::PointCloud2 & raw_msg,
+  const Eigen::Matrix3d & R_imu_to_sensor)
+{
+  size_t n = cloud.size();
+  if (n == 0 || n != static_cast<size_t>(raw_msg.width) * raw_msg.height) return;
+
+  const double header_sec = rclcpp::Time(raw_msg.header.stamp).seconds();
+  const uint8_t * raw_data = raw_msg.data.data();
+  const uint32_t point_step = raw_msg.point_step;
+
+  // 找扫描时间范围 [header, last_point]
+  double t_min = header_sec, t_max = header_sec;
+  for (size_t i = 0; i < n; ++i) {
+    double pt = extract_point_time(raw_data + i * point_step);
+    double dt = (pt > 1e8) ? (pt - header_sec) : pt;
+    double abs_t = header_sec + dt;
+    if (abs_t < t_min) t_min = abs_t;
+    if (abs_t > t_max) t_max = abs_t;
+  }
+
+  // 取 IMU 历史样本
+  auto samples = local_imu_->get_samples_in_range(
+    rclcpp::Time(static_cast<int64_t>(t_min * 1e9)),
+    rclcpp::Time(static_cast<int64_t>(t_max * 1e9) + 1000000LL));  // +1ms margin
+
+  if (samples.size() < 2) {
+    // 样本不足，fallback 到恒速
+    auto imu = get_imu_();
+    if (imu && imu->valid)
+      deskew_cloud(cloud, raw_msg, *imu);
+    return;
+  }
+
+  // 预计算累积旋转表：R_k = sensor 帧从 header 到 t_k 的累积旋转
+  // IMU ω 先旋转到 sensor 帧，然后积分
+  struct CumRot { double t; Eigen::Matrix3d R; };
+  std::vector<CumRot> cum;
+  cum.reserve(samples.size() + 1);
+  cum.push_back({header_sec, Eigen::Matrix3d::Identity()});
+
+  for (size_t k = 0; k < samples.size(); ++k) {
+    double t_k = samples[k].stamp.seconds();
+    double dt = t_k - cum.back().t;
+    if (dt <= 0) continue;
+    Eigen::Vector3d omega_sensor = R_imu_to_sensor *
+      Eigen::Vector3d(samples[k].wx, samples[k].wy, samples[k].wz);
+    cum.push_back({t_k, cum.back().R * so3_exp(omega_sensor * dt)});
+  }
+
+  if (cum.size() < 2) {
+    auto imu = get_imu_();
+    if (imu && imu->valid)
+      deskew_cloud(cloud, raw_msg, *imu);
+    return;
+  }
+
+  // 对每个点：查找累积旋转并补偿
+  for (size_t i = 0; i < n; ++i) {
+    double pt_time = extract_point_time(raw_data + i * point_step);
+    double dt = (pt_time > 1e8) ? (pt_time - header_sec) : pt_time;
+    if (std::abs(dt) < 1e-9) continue;
+
+    double t_i = header_sec + dt;
+
+    // 二分查找 t_i 所在区间
+    size_t lo = 0, hi = cum.size() - 1;
+    while (lo < hi - 1) {
+      size_t mid = (lo + hi) / 2;
+      if (cum[mid].t <= t_i) lo = mid;
+      else hi = mid;
+    }
+
+    // 在 [cum[lo], cum[hi]] 之间插值
+    double span = cum[hi].t - cum[lo].t;
+    Eigen::Matrix3d R_i;
+    if (span < 1e-9) {
+      R_i = cum[lo].R;
+    } else {
+      // 取 IMU 样本的 ω 做局部 exp
+      Eigen::Vector3d omega_sensor;
+      if (lo < samples.size())
+        omega_sensor = R_imu_to_sensor *
+          Eigen::Vector3d(samples[lo].wx, samples[lo].wy, samples[lo].wz);
+      else
+        omega_sensor = R_imu_to_sensor *
+          Eigen::Vector3d(samples.back().wx, samples.back().wy, samples.back().wz);
+      R_i = cum[lo].R * so3_exp(omega_sensor * (t_i - cum[lo].t));
+    }
+
+    // p_corrected = R_i^{-1} * p_raw （旋转回 header 时刻）
+    Eigen::Vector3d p(cloud[i].x, cloud[i].y, cloud[i].z);
+    Eigen::Vector3d corrected = R_i.inverse() * p;
+    cloud[i].x = static_cast<float>(corrected.x());
+    cloud[i].y = static_cast<float>(corrected.y());
+    cloud[i].z = static_cast<float>(corrected.z());
+  }
+}
+
 void SourceAdapter::apply_filters(CloudT & cloud)
 {
   for (auto & filter : filters_) {
@@ -264,9 +367,29 @@ void SourceAdapter::pc2_callback(sensor_msgs::msg::PointCloud2::ConstSharedPtr m
 
   // Per-point deskewing (before filters, in sensor frame)
   if (deskew_enabled_ && has_timestamp_field_ && get_imu_) {
-    auto imu = get_imu_();
-    if (imu && imu->valid)
-      deskew_cloud(*cloud, *msg, *imu);
+    if (deskew_mode_ == "integration" && local_imu_) {
+      // 积分模式：需要 IMU→sensor 旋转矩阵
+      Eigen::Matrix3d R_imu_to_sensor = Eigen::Matrix3d::Identity();
+      if (tf_buffer_) {
+        auto imu_snap = get_imu_();
+        if (imu_snap && !imu_snap->frame_id.empty()) {
+          std::string sensor_frame;
+          { std::lock_guard<std::mutex> lock(meta_mutex_); sensor_frame = frame_id_; }
+          if (!sensor_frame.empty() && sensor_frame != imu_snap->frame_id) {
+            try {
+              auto tf_msg = tf_buffer_->lookupTransform(
+                sensor_frame, imu_snap->frame_id, tf2::TimePointZero);
+              R_imu_to_sensor = tf2::transformToEigen(tf_msg.transform).rotation();
+            } catch (const tf2::TransformException &) {}
+          }
+        }
+      }
+      deskew_cloud_integration(*cloud, *msg, R_imu_to_sensor);
+    } else {
+      auto imu = get_imu_();
+      if (imu && imu->valid)
+        deskew_cloud(*cloud, *msg, *imu);
+    }
   }
 
   apply_filters(*cloud);

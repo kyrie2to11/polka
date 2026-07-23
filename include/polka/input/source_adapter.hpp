@@ -43,7 +43,8 @@ public:
                 ImuGetter imu_getter = nullptr, bool deskew_enabled = false,
                 const std::string & timestamp_field_hint = "auto",
                 std::shared_ptr<tf2_ros::Buffer> tf_buffer = nullptr,
-                int imu_buffer_size = 200);
+                int imu_buffer_size = 200,
+                std::string deskew_mode = "constant");
 
   CloudT::ConstPtr get_latest() const;
   bool is_stale(double timeout_sec, const rclcpp::Time & now) const;
@@ -61,6 +62,9 @@ public:
     return nullptr;
   }
 
+  /// 返回 per-source IMU buffer（用于 Stage B 积分对齐）
+  std::shared_ptr<ImuBuffer> imu_buffer() { return local_imu_; }
+
 private:
   void pc2_callback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
   void scan_callback(sensor_msgs::msg::LaserScan::ConstSharedPtr msg);
@@ -71,10 +75,11 @@ private:
   // Per-point deskewing
   void detect_timestamp_field(const sensor_msgs::msg::PointCloud2 & msg);
   double extract_point_time(const uint8_t * point_data) const;
-  // Fill each point's 'time' field with its absolute acquisition time (Unix sec).
   void populate_point_time(CloudT & cloud, const sensor_msgs::msg::PointCloud2 & raw_msg);
   void deskew_cloud(CloudT & cloud, const sensor_msgs::msg::PointCloud2 & raw_msg,
                     const AveragedImu & imu);
+  void deskew_cloud_integration(CloudT & cloud, const sensor_msgs::msg::PointCloud2 & raw_msg,
+                                const Eigen::Matrix3d & R_imu_to_sensor);
 
   rclcpp::Node * node_;
   SourceConfig config_;
@@ -111,6 +116,7 @@ private:
   // Per-source IMU (when configured) and TF for frame rotation
   std::shared_ptr<ImuBuffer> local_imu_;
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::string deskew_mode_{"constant"};
 };
 
 }  // namespace polka

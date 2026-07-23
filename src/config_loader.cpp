@@ -46,6 +46,7 @@ void ConfigLoader::declare_defaults()
   node_->declare_parameter<bool>("motion_compensation.per_point_deskew", true);
   node_->declare_parameter<std::string>("motion_compensation.deskew_timestamp_field", "auto");
   node_->declare_parameter<std::string>("motion_compensation.imu_frame", "");
+  node_->declare_parameter<std::string>("motion_compensation.deskew_mode", "constant");
 
   // outputs.cloud
   node_->declare_parameter<bool>("outputs.cloud.enabled", true);
@@ -194,6 +195,8 @@ MergeConfig ConfigLoader::read_common_params()
     node_->get_parameter("motion_compensation.deskew_timestamp_field").as_string();
   cfg.motion_compensation.imu_frame =
     node_->get_parameter("motion_compensation.imu_frame").as_string();
+  cfg.motion_compensation.deskew_mode =
+    node_->get_parameter("motion_compensation.deskew_mode").as_string();
 
   cfg.cloud_output.enabled = node_->get_parameter("outputs.cloud.enabled").as_bool();
   cfg.cloud_output.topic = node_->get_parameter("outputs.cloud.topic").as_string();

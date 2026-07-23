@@ -196,6 +196,7 @@ struct MotionCompensationConfig {
   bool per_point_deskew = true;                   // per-point correction if timestamps available
   std::string deskew_timestamp_field = "auto";    // "auto" or specific field name
   std::string imu_frame = "";                     // empty = auto-detect from IMU msg header
+  std::string deskew_mode = "constant";           // "constant" or "integration"
 };
 
 struct MergeConfig {
