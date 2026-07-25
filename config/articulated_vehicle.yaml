@@ -1,0 +1,158 @@
+# ============================================================================
+# polka - articulated vehicle LiDAR fusion config
+# ============================================================================
+#
+# Real rig: RoboSense Airy LiDARs published by irail_rslidar (rslidar_sdk).
+# Current real experiment uses 3 sensors:
+#   airy_front - roof front, tilted forward (front_lidar_link)
+#   airy_rear  - roof rear, tilted backward (rear_lidar_link)
+#   airy_left_front - left-front, uncalibrated seed (left_front_lidar_link)
+#
+# Topics match irail_rslidar/config/rslidar_multi.yaml (/pointcloud/airy_*).
+# Externsics come from URDF TF tree (dynamic via articulation joint):
+# each source's header.frame_id is
+# resolved against output_frame_id (base_footprint) via TF.
+# ============================================================================
+
+polka:
+  ros__parameters:
+    # --------------------------------------------------
+    # General
+    # --------------------------------------------------
+
+    output_frame_id: "rear_lidar_imu_ned"
+    output_rate: 20.0
+    source_timeout: 0.5
+    enable_gpu: true
+    timestamp_strategy: "latest"
+    max_source_spread_warn: 0.05
+
+    # --------------------------------------------------
+    # Motion Compensation (IMU-based deskewing)
+    # --------------------------------------------------
+    # Uses each Airy's built-in IMU as the reference for motion estimation.
+    # Per-point deskewing corrects intra-scan distortion; inter-source
+    # alignment corrects timing offsets between sensors.
+
+    motion_compensation:
+      enabled: true
+      imu_topic: "/imu/airy_rear"
+      max_imu_age: 0.2
+      imu_buffer_size: 200
+      per_point_deskew: true
+      deskew_timestamp_field: "auto"
+
+    # --------------------------------------------------
+    # Outputs
+    # --------------------------------------------------
+
+    outputs:
+      # === Merged PointCloud2 ===
+      cloud:
+        enabled: true
+        topic: "~/merged_cloud"
+
+        qos:
+          reliability: "reliable"
+          durability: "volatile"
+          history_depth: 5
+
+        filters:
+          range:
+            enabled: true
+            min: 0.2
+            max: 200.0
+
+          angular:
+            enabled: false
+
+          box:
+            enabled: false
+
+        height_cap:
+          enabled: false
+          z_min: -0.5
+          z_max: 15.0
+
+        self_filter:
+          enabled: false
+
+        voxel:
+          enabled: true
+          leaf_size: 0.05
+
+      # === Merged LaserScan (for nav2 costmap) ===
+      scan:
+        enabled: true
+        topic: "~/merged_scan"
+
+        qos:
+          reliability: "best_effort"
+          durability: "volatile"
+          history_depth: 5
+
+        z_min: -0.3
+        z_max: 0.8
+        angle_min: -3.14159265
+        angle_max: 3.14159265
+        angle_increment: 0.00436332 # 0.25 deg ~ 1440 bins
+        range_min: 0.2
+        range_max: 200.0
+
+    # --------------------------------------------------
+    # Sources
+    # --------------------------------------------------
+
+    source_names:
+      - airy_front
+      - airy_rear
+      - airy_left_front
+
+    sources:
+      airy_front:
+        topic: "/pointcloud/airy_front"
+        type: "pointcloud2"
+        imu_topic: "/imu/airy_front"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.2
+            max: 200.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
+
+      airy_rear:
+        topic: "/pointcloud/airy_rear"
+        type: "pointcloud2"
+        imu_topic: "/imu/airy_rear"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.2
+            max: 200.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
+
+      airy_left_front:
+        topic: "/pointcloud/airy_left_front"
+        type: "pointcloud2"
+        imu_topic: "/imu/airy_left_front"
+        qos_reliability: "best_effort"
+        qos_history_depth: 1
+        filters:
+          range:
+            enabled: true
+            min: 0.2
+            max: 200.0
+          angular:
+            enabled: false
+          box:
+            enabled: false
