@@ -20,10 +20,10 @@ polka:
     # General
     # --------------------------------------------------
 
-    output_frame_id: "rear_lidar_imu_ned"
+    output_frame_id: "base_footprint"
     output_rate: 20.0
     source_timeout: 0.5
-    enable_gpu: true
+    enable_gpu: false
     timestamp_strategy: "latest"
     max_source_spread_warn: 0.05
 
