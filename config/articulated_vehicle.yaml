@@ -20,7 +20,7 @@ polka:
     # General
     # --------------------------------------------------
 
-    output_frame_id: "rear_lidar_link"
+    output_frame_id: "rear_lidar_imu_ned"
     output_rate: 20.0
     source_timeout: 0.5
     enable_gpu: true
