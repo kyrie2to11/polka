@@ -24,14 +24,11 @@
 
 <p align="center">
   <img src="doc/images/polka.png" alt="Polka" width="640"/>
-</p>
+  
+  <img width="400" height="200" alt="Screencastfrom2026-07-2510-38-51-ezgif com-optimize   (2)" src="https://github.com/user-attachments/assets/66b65b81-c373-4af6-aa05-a58d402779d7" />
 
-<p align="center">
-  <img src="doc/media/gifs/fusion.gif" alt="Polka multi-LiDAR fusion" width="760"/>
-  <br/>
-  <em>Multi-LiDAR fusion: one spinning Ouster vs. Ouster + Livox Avia + Mid-360 merged into a single cloud.</em>
 </p>
-
+  
 **Multi-LiDAR fusion node for ROS 2.** Merges any mix of PointCloud2 and LaserScan sources into a unified PointCloud2 and/or LaserScan, with per-source and output filtering, IMU deskewing, and optional CUDA acceleration. One composable node replaces a relay / filter / transform / merge / downsample chain.
 
 ## Features in action
@@ -60,6 +57,24 @@ Each clip runs polka with a different config on the [TIERS multi-LiDAR dataset](
 </tr>
 </table>
 
+<p align="center">
+  <img src="doc/media/gifs/deskew.gif" alt="per-point deskew: raw scan vs deskewed" width="560"/>
+  <br/>
+  <em>Deskew: per-point SE(3) correction removes intra-scan motion smear (synthetic yaw, mechanism demo). This clip is synthetic, generated separately from the TIERS dataset clips above.</em>
+</p>
+
+## Performance
+
+<p align="center">
+  <img src="doc/images/perf_summary.svg" alt="Polka 0.5.0 before and after performance summary" width="620"/>
+</p>
+
+**CUDA.** The GPU merge engine wins on heavy pipelines by fusing transform, filter, voxel, and scan flatten into a single pass over the points. On a filterless merge the CPU stays competitive, because kernel dispatch and host to device transfer overhead dominate when there is little per-point work to hide them behind. Build with `-DWITH_CUDA=ON` (it falls back to CPU automatically); it is not universally faster.
+
+**Bandwidth.** polka fans N sensor streams into one output topic, so every downstream node subscribes once instead of to each raw sensor. Voxel downsampling can thin that cloud further, a tradeoff the user sets through `leaf_size`: at the leaf size used in the demo clip it drops 69k points to 5k (about 14x), which is an example of the ratio, not a fixed figure or a 0.5.0 speedup.
+
+See [Performance notes](doc/PERFORMANCE.md) for measurement context, the per number sources, and the CPU to CUDA crossover.
+
 ## Features
 
 - **Heterogeneous fusion**: mix 3D PointCloud2 and 2D LaserScan sources freely
@@ -68,9 +83,31 @@ Each clip runs polka with a different config on the [TIERS multi-LiDAR dataset](
 - **IMU deskewing**: per-point SE(3) motion correction, with per-point timestamp auto-detect
 - **CUDA acceleration**: optional GPU merge engine, falls back to CPU
 - **TF2 integration**: automatic lookup with last-known-good fallback
-- **Full runtime reconfiguration**: filters, outputs, deskewing, and even the source list can be changed live via `ros2 param set` — no restart (see [Runtime Reconfiguration & Diagnostics](doc/RUNTIME.md))
-- **Diagnostics, drift detection, and a terminal dashboard**: per-source rate/bandwidth/lag on `/diagnostics`, timing/rate drift flags, and an optional `polka_monitor` TUI (see [Runtime Reconfiguration & Diagnostics](doc/RUNTIME.md))
+- **Full runtime reconfiguration**: filters, outputs, deskewing, and even the source list can be changed live via `ros2 param set` — no restart
+- **Diagnostics, drift detection, and a terminal dashboard**: per-source rate/bandwidth/lag on `/diagnostics`, timing/rate drift flags, and an optional `polka_monitor` TUI
 - **Composable node**: runs standalone or loaded into a component container
+
+## Sensor and IMU support
+
+| Capability | Supported | How |
+|---|---|---|
+| 3D PointCloud2 | yes | native |
+| 2D LaserScan | yes | projected and merged |
+| Single global IMU | yes | `motion_compensation.imu_topic` |
+| Multiple IMUs (per source) | yes | `sources.<name>.imu_topic` |
+| Decentralized IMUs (different mounts) | yes | TF rotates angular velocity and acceleration into each sensor frame |
+| Articulated IMUs (moving joint or turret) | yes | dynamic TF from `joint_states`; `config/example_articulated_imu.yaml` |
+
+Every source can carry its own IMU on its own mount. polka looks up the live TF from each IMU frame to its sensor frame and rotates that IMU's angular velocity and acceleration into the sensor frame before deskewing, so a fixed chassis LiDAR and a rotating turret LiDAR each deskew against their own motion:
+
+```mermaid
+graph LR
+  gimu[global IMU] -->|TF into sensor frame| chassis[chassis LiDAR]
+  timu[turret IMU] -->|TF into sensor frame| turret[turret LiDAR]
+  chassis --> polka
+  turret --> polka
+  polka --> merged[one merged cloud]
+```
 
 ## Install
 
@@ -102,8 +139,8 @@ Set `output_frame_id` to your base frame, list sensors under `source_names`, and
 ## Documentation
 
 - **[Configuration](doc/CONFIGURATION.md)**: every parameter, filters, IMU deskewing, rosbag playback
-- **[Runtime Reconfiguration & Diagnostics](doc/RUNTIME.md)**: live `ros2 param set` reconfiguration, `/diagnostics`, drift detection, the `polka_monitor` terminal dashboard
 - **[Pipeline and architecture](doc/PIPELINE.md)**: what polka replaces, internal stages, file layout
+- **[Performance](doc/PERFORMANCE.md)**: measured 0.5.0 speedups, the CPU to CUDA crossover, and the bandwidth angle
 - **[Maintaining distro branches](MAINTAINING.md)**: single-source-of-truth sync across the five branches
 
 ## License and credits
