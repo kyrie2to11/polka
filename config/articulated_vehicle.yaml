@@ -75,6 +75,8 @@ polka:
           z_max: 15.0
 
         self_filter:
+          # 关闭：实测对"沿轨迹拖影"无效（该拖影是 deskew/时间同步残差，非车体自点；
+          # 且大盒会误砍车前墙点）。自点盒标定见 slam_debug_pregap 分析，需要时再开。
           enabled: false
 
         voxel:
