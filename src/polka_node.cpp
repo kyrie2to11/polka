@@ -68,6 +68,13 @@ bool drift_params_equal(const DiagnosticsConfig & a, const DiagnosticsConfig & b
          a.rate_baseline_sec == b.rate_baseline_sec;
 }
 
+bool any_source_has_own_imu(const std::vector<SourceConfig> & sources)
+{
+  return std::any_of(
+    sources.begin(), sources.end(),
+    [](const SourceConfig & sc) {return !sc.imu_topic.empty();});
+}
+
 }  // namespace
 
 PolkaNode::PolkaNode(const rclcpp::NodeOptions & options)
@@ -107,9 +114,15 @@ PolkaNode::PolkaNode(const rclcpp::NodeOptions & options)
       this, config_.motion_compensation.imu_topic,
       config_.motion_compensation.imu_buffer_size);
   } else if (config_.motion_compensation.enabled) {
-    RCLCPP_WARN(
-      get_logger(),
-      "polka: motion compensation enabled but imu_topic is empty, deskewing will not activate");
+    if (any_source_has_own_imu(config_.sources)) {
+      RCLCPP_INFO(
+        get_logger(),
+        "polka: no global imu_topic; deskewing only sources with a per-source imu_topic");
+    } else {
+      RCLCPP_WARN(
+        get_logger(),
+        "polka: motion compensation enabled but imu_topic is empty, deskewing will not activate");
+    }
   }
 
   for (const auto & src_cfg : config_.sources) {
@@ -125,8 +138,8 @@ PolkaNode::PolkaNode(const rclcpp::NodeOptions & options)
   scan_builder_.configure(config_.scan_output, config_.output_rate, config_.output_frame_id);
 
   if (config_.cloud_output.enabled) {
-    cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-      config_.cloud_output.topic, build_qos(config_.cloud_output.qos));
+    cloud_pub_ = create_cloud_publisher(
+      this, config_.cloud_output.topic, build_qos(config_.cloud_output.qos));
   }
   if (config_.scan_output.enabled) {
     scan_pub_ = create_publisher<sensor_msgs::msg::LaserScan>(
@@ -260,7 +273,7 @@ void PolkaNode::apply_reconfigure()
   // Publishers: recreate on topic/QoS change, destroy on disable.
   if (!new_config.cloud_output.enabled) {
     if (cloud_pub_) {
-      cloud_pub_.reset();
+      shutdown_cloud_publisher(cloud_pub_);
       changes.emplace_back("cloud_output=off");
     }
   } else {
@@ -271,8 +284,8 @@ void PolkaNode::apply_reconfigure()
       changes.emplace_back(
         cloud_pub_ ?
         "cloud_output='" + new_config.cloud_output.topic + "'" : "cloud_output=on");
-      cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
-        new_config.cloud_output.topic, build_qos(new_config.cloud_output.qos));
+      cloud_pub_ = create_cloud_publisher(
+        this, new_config.cloud_output.topic, build_qos(new_config.cloud_output.qos));
     }
   }
   if (!new_config.scan_output.enabled) {
@@ -322,7 +335,8 @@ void PolkaNode::apply_reconfigure()
     changes.emplace_back("motion_compensation=off");
   }
   if (new_mc.enabled && new_mc.imu_topic.empty() &&
-    !(old_mc.enabled && old_mc.imu_topic.empty()))
+    !(old_mc.enabled && old_mc.imu_topic.empty()) &&
+    !any_source_has_own_imu(new_config.sources))
   {
     RCLCPP_WARN(
       get_logger(),
@@ -586,7 +600,7 @@ void PolkaNode::diag_callback()
 
   OutputReport out;
   out.engine = merge_engine_->is_gpu() ? "CUDA" : "CPU";
-  out.cloud_topic = cloud_pub_ ? cloud_pub_->get_topic_name() : "";
+  out.cloud_topic = cloud_pub_ ? cloud_publisher_topic(cloud_pub_) : "";
   out.scan_topic = scan_pub_ ? scan_pub_->get_topic_name() : "";
   out.cloud_rates = cloud_out_window_.update(cloud_out_counters_.sample(), now_steady_sec);
   out.scan_rates = scan_out_window_.update(scan_out_counters_.sample(), now_steady_sec);
@@ -736,7 +750,7 @@ void PolkaNode::output_callback()
         msg.header.stamp = last_cloud_stamp_;
         cloud_out_counters_.record(
           msg.data.size() + 72, last_cloud_->size(), last_cloud_->size());
-        cloud_pub_->publish(msg);
+        publish_cloud(cloud_pub_, msg);
         mark_published();
       }
       if (scan_pub_) {
@@ -826,7 +840,7 @@ void PolkaNode::output_callback()
       msg.header.stamp = output_stamp;
       cloud_out_counters_.record(
         msg.data.size() + 72, result.cloud->size(), result.cloud->size());
-      cloud_pub_->publish(msg);
+      publish_cloud(cloud_pub_, msg);
       mark_published();
       std::lock_guard<std::mutex> lock(last_data_mutex_);
       last_cloud_ = result.cloud;
@@ -868,7 +882,7 @@ void PolkaNode::output_callback()
       msg.header.frame_id = config_.output_frame_id;
       msg.header.stamp = output_stamp;
       cloud_out_counters_.record(msg.data.size() + 72, merged->size(), merged->size());
-      cloud_pub_->publish(msg);
+      publish_cloud(cloud_pub_, msg);
       mark_published();
       std::lock_guard<std::mutex> lock(last_data_mutex_);
       last_cloud_ = merged;
