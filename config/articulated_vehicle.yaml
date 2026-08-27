@@ -21,7 +21,11 @@ polka:
     # --------------------------------------------------
 
     output_frame_id: "base_footprint"
-    output_rate: 20.0
+    output_rate: 50.0 # tick 20ms ≪ 100ms 帧距,消除同源双帧落同窗被 get_latest 覆盖的丢帧
+    # 同周期聚齐窗口(小窗模式):仅拦截 <10ms 的微秒级同刻双胞胎发布
+    # (PTP 锁相三源被 tick 边界拆开发),不拦截 33-100ms 的真实周期推进;
+    # 大窗(0.06)会因目标被超车吞周期(实测 90 周期/圈)故取小窗。
+    suppress_same_cycle_window_sec: 0.01
     source_timeout: 0.5
     enable_gpu: false
     timestamp_strategy: "latest"

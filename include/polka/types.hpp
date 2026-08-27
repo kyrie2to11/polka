@@ -296,6 +296,11 @@ struct MergeConfig
   // (e.g. GLIM) from seeing two scans with an identical header.stamp.
   bool suppress_duplicate_timestamps = true;
 
+  // 同周期窗口(秒):输出 stamp 距上次发布 < 窗口 → 视为同一感知周期,跳过发布。
+  // 0 = 关闭。三雷达 PTP 同步后微秒级同刻的部分源发布需要此窗口拦截(默认关,
+  // 由车辆 yaml 启用),否则下游 LIO 对近零 IMU 间隙的双胞胎扫描双重积分。
+  double suppress_same_cycle_window_sec = 0.0;
+
   MotionCompensationConfig motion_compensation;
   DiagnosticsConfig diagnostics;
 

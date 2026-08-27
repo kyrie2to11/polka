@@ -71,6 +71,11 @@ void ConfigLoader::declare_defaults()
   node_->declare_parameter<bool>("point_timestamps.enabled", false);
   node_->declare_parameter<std::string>("point_timestamps.mode", "offset");
   node_->declare_parameter<bool>("suppress_duplicate_timestamps", true);
+  // 同周期窗口(秒):输出 stamp 距上次发布不足该窗口视为同一感知周期,跳过发布。
+  // 三雷达 PTP 同步后 stamp 微秒级同刻,一个周期会按"哪个源先到"被拆成 2-3 次
+  // 部分源发布,精确相等去重拦不住;下游 LIO 会把近零 IMU 间隙的双胞胎扫描各
+  // 积分一次,注入速度/姿态踢动(2026-08-28 bag 回放实测:30 对/圈 → 轨迹抖动)。
+  node_->declare_parameter<double>("suppress_same_cycle_window_sec", 0.0);
 
   // motion compensation (IMU-based deskewing)
   node_->declare_parameter<bool>("motion_compensation.enabled", false);
@@ -268,6 +273,8 @@ MergeConfig ConfigLoader::read_common_params()
   } else {throw std::runtime_error("polka: invalid point_timestamps.mode '" + ppt_mode + "'");}
   cfg.suppress_duplicate_timestamps =
     param("suppress_duplicate_timestamps").as_bool();
+  cfg.suppress_same_cycle_window_sec =
+    param("suppress_same_cycle_window_sec").as_double();
 
   cfg.motion_compensation.enabled =
     param("motion_compensation.enabled").as_bool();

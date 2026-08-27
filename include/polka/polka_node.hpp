@@ -157,6 +157,14 @@ private:
   std::chrono::steady_clock::time_point start_steady_{};
   std::chrono::steady_clock::time_point last_publish_steady_{};
   bool ever_published_{false};
+
+  // 发布决策轨迹(POLKA_TRACE_PUBLISH=1 启用):定位同戳重复发射的生成机制。
+  bool trace_publish_{false};
+  uint64_t trace_tick_{0};
+
+  // 同周期聚齐窗口:目标周期 stamp → 首见时刻(steady)。窗口内等其余源到齐。
+  int64_t gather_target_ns_{0};
+  double gather_first_steady_{0.0};
 };
 
 }  // namespace polka

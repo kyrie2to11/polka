@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <functional>
 #include <sstream>
 #include <utility>
@@ -88,6 +89,7 @@ PolkaNode::PolkaNode(const rclcpp::NodeOptions & options)
 
   start_steady_ = std::chrono::steady_clock::now();
   config_ = config_loader_.load();
+  trace_publish_ = std::getenv("POLKA_TRACE_PUBLISH") != nullptr;
 
   tf_buffer_ = std::make_shared<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -737,6 +739,11 @@ void PolkaNode::output_callback()
   }
 
   if (source_data.empty()) {
+    if (trace_publish_) {
+      fprintf(stderr, "[trace] tick=%llu empty suppress=%d\n",
+              static_cast<unsigned long long>(trace_tick_++),
+              config_.suppress_duplicate_timestamps ? 1 : 0);
+    }
     // No source produced a new frame this tick. When suppressing duplicates, emit
     // nothing rather than re-publishing the last cloud with its original stamp: a
     // duplicate header.stamp hands downstream SLAM (e.g. GLIM) two scans with zero
@@ -791,7 +798,54 @@ void PolkaNode::output_callback()
   // header.stamp and no IMU between them. Skip until the stamp actually moves.
   if (config_.suppress_duplicate_timestamps) {
     std::lock_guard<std::mutex> lock(last_data_mutex_);
-    if (last_cloud_ && output_stamp == last_cloud_stamp_) {return;}
+    if (last_cloud_ && output_stamp == last_cloud_stamp_) {
+      if (trace_publish_) {
+        fprintf(stderr, "[trace] tick=%llu dedup-skip stamp=%lld\n",
+                static_cast<unsigned long long>(trace_tick_++),
+                static_cast<long long>(output_stamp.nanoseconds()));
+      }
+      return;
+    }
+  }
+  // 同周期聚齐窗口:目标周期 = 本 tick 最新 fresh stamp。若仍有源的最新帧
+  // 落后目标 >0.02s(在途),等待其余源到齐再发布,消除"部分源新鲜 + 陈旧复用"
+  // 的错位混合云;窗口超时则按现有复用逻辑发布(不因单源掉线而卡死)。
+  if (config_.suppress_same_cycle_window_sec > 0.0) {
+    const rclcpp::Time target = output_stamp;
+    bool pending = false;
+    for (const auto & sd : source_data) {
+      if ((target - sd.stamp).seconds() > 0.02) {pending = true; break;}
+    }
+    const double now_steady = steady_seconds(std::chrono::steady_clock::now());
+    if (pending) {
+      if (gather_target_ns_ != target.nanoseconds()) {
+        gather_target_ns_ = target.nanoseconds();
+        gather_first_steady_ = now_steady;
+      }
+      if (now_steady - gather_first_steady_ <
+        config_.suppress_same_cycle_window_sec)
+      {
+        if (trace_publish_) {
+          fprintf(stderr, "[trace] tick=%llu gather-wait stamp=%lld\n",
+                  static_cast<unsigned long long>(trace_tick_++),
+                  static_cast<long long>(target.nanoseconds()));
+        }
+        return;
+      }
+      // 超时:带现有源发布(陈旧源由 reuse 逻辑接管)
+    } else {
+      gather_target_ns_ = 0;
+    }
+  }
+  if (trace_publish_) {
+    std::ostringstream src_stamps;
+    for (const auto & sd : source_data) {
+      src_stamps << " " << sd.stamp.nanoseconds();
+    }
+    fprintf(stderr, "[trace] tick=%llu publish stamp=%lld src=[%s ]\n",
+            static_cast<unsigned long long>(trace_tick_++),
+            static_cast<long long>(output_stamp.nanoseconds()),
+            src_stamps.str().c_str());
   }
 
   bool do_compensate = false;
