@@ -119,7 +119,7 @@ polka:
         topic: "/pointcloud/airy_front"
         type: "pointcloud2"
         imu_topic: "/imu/airy_front"
-        qos_reliability: "best_effort"
+        qos_reliability: "reliable"
         qos_history_depth: 1
         filters:
           range:
@@ -135,7 +135,7 @@ polka:
         topic: "/pointcloud/airy_rear"
         type: "pointcloud2"
         imu_topic: "/imu/airy_rear"
-        qos_reliability: "best_effort"
+        qos_reliability: "reliable"
         qos_history_depth: 1
         filters:
           range:
@@ -151,7 +151,7 @@ polka:
         topic: "/pointcloud/airy_left_front"
         type: "pointcloud2"
         imu_topic: "/imu/airy_left_front"
-        qos_reliability: "best_effort"
+        qos_reliability: "reliable"
         qos_history_depth: 1
         filters:
           range:
