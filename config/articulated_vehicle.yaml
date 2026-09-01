@@ -87,9 +87,12 @@ polka:
           enabled: true
           leaf_size: 0.05
 
-      # === Merged LaserScan (for nav2 costmap) ===
+      # === Merged LaserScan ===
+      # 2026-09 关闭: 唯一消费者 Nav2 costmap 已剥离; 导航栈(irail_local_
+      # planner)点云唯一来源是 merged_cloud, 自做 RANSAC 地面分割。
+      # 需要 2D 扫描调试时临时置 true。
       scan:
-        enabled: true
+        enabled: false
         topic: "~/merged_scan"
 
         qos:
